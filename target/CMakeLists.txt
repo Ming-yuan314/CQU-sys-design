@@ -29,6 +29,8 @@ set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
 # ----------------------------
 set(COMMON_SOURCES
   common/dummy.cpp
+  common/net/SocketInit.cpp
+  common/net/FramedIO.cpp
 )
 
 set(SERVER_SOURCES
