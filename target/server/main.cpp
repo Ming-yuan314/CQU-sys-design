@@ -9,6 +9,8 @@
 #include "../common/net/SocketInit.h"
 #include "../common/protocol/Message.h"
 #include "core/CommandRouter.h"
+#include "core/ServerConfig.h"
+#include "handlers/AuthHandlers.h"
 #include "handlers/BasicHandlers.h"
 
 int main() {
@@ -21,7 +23,24 @@ int main() {
         return 1;
     }
 
-    const unsigned short kListenPort = 9000;
+    server::ServerConfig config;
+    std::string configErr;
+    const std::string configPaths[] = {
+        "server/server_config.json",
+        "../server/server_config.json",
+        "server_config.json"
+    };
+    bool loaded = false;
+    for (const auto& path : configPaths) {
+        if (server::LoadServerConfig(path, config, configErr)) {
+            std::cout << "Config loaded from " << path << "\n";
+            loaded = true;
+            break;
+        }
+    }
+    if (!loaded) {
+        std::cerr << "Config load failed: " << configErr << ", using defaults\n";
+    }
 
     SOCKET listenSock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
     if (listenSock == INVALID_SOCKET) {
@@ -31,7 +50,7 @@ int main() {
 
     sockaddr_in addr{};
     addr.sin_family = AF_INET;
-    addr.sin_port = htons(kListenPort);
+    addr.sin_port = htons(config.port);
     addr.sin_addr.s_addr = htonl(INADDR_ANY);
 
     if (bind(listenSock, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) == SOCKET_ERROR) {
@@ -46,9 +65,10 @@ int main() {
         return 1;
     }
 
-    std::cout << "listening on port " << kListenPort << "\n";
+    std::cout << "listening on port " << config.port << "\n";
 
     server::CommandRouter router;
+    server::RegisterAuthHandlers(router, config);
     server::RegisterBasicHandlers(router);
 
     bool serverRunning = true;

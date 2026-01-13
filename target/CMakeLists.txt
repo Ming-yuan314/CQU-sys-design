@@ -39,6 +39,8 @@ set(COMMON_SOURCES
 set(SERVER_SOURCES
   server/main.cpp
   server/core/CommandRouter.cpp
+  server/core/ServerConfig.cpp
+  server/handlers/AuthHandlers.cpp
   server/handlers/BasicHandlers.cpp
   ${COMMON_SOURCES}
 )

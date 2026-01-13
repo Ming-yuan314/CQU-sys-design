@@ -1,5 +1,6 @@
 #include <iostream>
 #include <string>
+#include <sstream>
 
 #include <winsock2.h>
 #include <ws2tcpip.h>
@@ -59,17 +60,55 @@ int main() {
             break;
         }
 
+        auto trim = [](std::string& s) {
+            const char* ws = " \t\r\n";
+            const std::string::size_type start = s.find_first_not_of(ws);
+            if (start == std::string::npos) {
+                s.clear();
+                return;
+            }
+            const std::string::size_type end = s.find_last_not_of(ws);
+            s = s.substr(start, end - start + 1);
+        };
+
+        auto toUpper = [](std::string s) {
+            for (char& c : s) {
+                if (c >= 'a' && c <= 'z') {
+                    c = static_cast<char>(c - 'a' + 'A');
+                }
+            }
+            return s;
+        };
+
+        trim(line);
+
         protocol::RequestMessage req;
         if (!line.empty()) {
             const std::string::size_type spacePos = line.find(' ');
-            if (spacePos == std::string::npos) {
-                req.cmd = line;
-            } else {
-                req.cmd = line.substr(0, spacePos);
-                const std::string rest = line.substr(spacePos + 1);
-                if (req.cmd == "ECHO" || req.cmd == "echo") {
-                    req.args.fields["text"] = protocol::MakeString(rest);
+            std::string cmd = (spacePos == std::string::npos) ? line : line.substr(0, spacePos);
+            std::string rest = (spacePos == std::string::npos) ? "" : line.substr(spacePos + 1);
+            trim(cmd);
+            trim(rest);
+
+            const std::string cmdUpper = toUpper(cmd);
+            req.cmd = cmdUpper;
+
+            if (cmdUpper == "LOGIN_LOW") {
+                std::istringstream iss(rest);
+                std::string user;
+                std::string pass;
+                if (!(iss >> user >> pass)) {
+                    std::cout << "Usage: login_low <user> <pass>\n";
+                    continue;
                 }
+                req.args.fields["username"] = protocol::MakeString(user);
+                req.args.fields["password"] = protocol::MakeString(pass);
+            } else if (cmdUpper == "ECHO") {
+                if (rest.empty()) {
+                    std::cout << "Usage: ECHO <text>\n";
+                    continue;
+                }
+                req.args.fields["text"] = protocol::MakeString(rest);
             }
         }
         if (req.cmd.empty()) {
@@ -103,6 +142,14 @@ int main() {
 
         std::cout << "Response: " << resp.msg << " (ok=" << (resp.ok ? "true" : "false")
                   << ", code=" << protocol::ErrorCodeToInt(resp.code) << ")\n";
+
+        if (!resp.ok) {
+            if (resp.code == protocol::ErrorCode::NotLogin) {
+                std::cout << "Hint: not logged in, run login_low <user> <pass>\n";
+            } else if (resp.code == protocol::ErrorCode::NoPermission) {
+                std::cout << "Hint: permission denied (HIGH required)\n";
+            }
+        }
 
         if (!resp.data.fields.empty()) {
             protocol::JsonValue dataVal = protocol::MakeObject();

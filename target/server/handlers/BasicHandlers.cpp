@@ -12,19 +12,6 @@ namespace server {
 
 namespace {
 
-std::string LevelToString(Session::Level level) {
-    switch (level) {
-    case Session::Level::Guest:
-        return "GUEST";
-    case Session::Level::Low:
-        return "LOW";
-    case Session::Level::High:
-        return "HIGH";
-    default:
-        return "GUEST";
-    }
-}
-
 bool GetStringArg(const protocol::JsonObject& args, const std::string& key, std::string& out) {
     return protocol::GetString(args, key, out);
 }
@@ -73,18 +60,18 @@ void RegisterBasicHandlers(CommandRouter& router) {
             resp.msg = "OK";
             resp.data.fields.clear();
             const std::vector<std::string> commands = {
-                "HELP", "PING", "WHOAMI", "ECHO", "TIME"
+                "HELP", "PING", "WHOAMI", "ECHO", "TIME", "LOGIN_LOW"
             };
             SetCommands(resp.data, commands);
         });
 
-    router.RegisterCommand("WHOAMI", Session::Level::Guest,
+    router.RegisterCommand("WHOAMI", Session::Level::Low,
         [](const protocol::RequestMessage&, Session& session, protocol::ResponseMessage& resp) {
             resp.ok = true;
             resp.code = protocol::ErrorCode::Ok;
             resp.msg = "OK";
             resp.data.fields.clear();
-            SetString(resp.data, "level", LevelToString(session.level()));
+            SetString(resp.data, "level", session.levelString());
             SetString(resp.data, "username", session.username());
         });
 
@@ -105,7 +92,7 @@ void RegisterBasicHandlers(CommandRouter& router) {
             SetString(resp.data, "echo", text);
         });
 
-    router.RegisterCommand("TIME", Session::Level::Guest,
+    router.RegisterCommand("TIME", Session::Level::Low,
         [](const protocol::RequestMessage&, Session&, protocol::ResponseMessage& resp) {
             resp.ok = true;
             resp.code = protocol::ErrorCode::Ok;
