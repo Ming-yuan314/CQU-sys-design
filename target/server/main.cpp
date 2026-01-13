@@ -7,6 +7,9 @@
 #include "../common/dummy.h"
 #include "../common/net/FramedIO.h"
 #include "../common/net/SocketInit.h"
+#include "../common/protocol/Message.h"
+#include "core/CommandRouter.h"
+#include "handlers/BasicHandlers.h"
 
 int main() {
     std::cout << "server start\n";
@@ -45,6 +48,9 @@ int main() {
 
     std::cout << "listening on port " << kListenPort << "\n";
 
+    server::CommandRouter router;
+    server::RegisterBasicHandlers(router);
+
     bool serverRunning = true;
     while (serverRunning) {
         sockaddr_in clientAddr{};
@@ -57,26 +63,27 @@ int main() {
 
         std::cout << "client connected\n";
 
+        server::Session session;
+
         bool clientRunning = true;
         while (clientRunning) {
-            std::string payload;
-            if (!net::recvFrame(clientSock, payload)) {
+            std::string reqJson;
+            if (!net::recvFrame(clientSock, reqJson)) {
                 std::cerr << "recvFrame failed or client closed connection\n";
                 break;
             }
 
-            std::cout << "recv from client: " << payload << "\n";
+            std::cout << "recv request: " << reqJson << "\n";
 
-            std::string reply = "ACK: " + payload;
-            if (!net::sendFrame(clientSock, reply)) {
-                std::cerr << "sendFrame failed\n";
+            std::string respJson;
+            if (!router.Handle(session, reqJson, respJson)) {
+                std::cerr << "router handle failed\n";
                 break;
             }
 
-            if (payload == "exit") {
-                std::cout << "Exit command received, shutting down server\n";
-                clientRunning = false;
-                serverRunning = false;
+            if (!net::sendFrame(clientSock, respJson)) {
+                std::cerr << "sendFrame failed\n";
+                break;
             }
         }
 
