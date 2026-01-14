@@ -4,6 +4,7 @@
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
+#include <mutex>
 #include <sstream>
 
 #include "../../common/utils/Base64.h"
@@ -106,6 +107,11 @@ void SetBool(protocol::JsonObject& obj, const std::string& key, bool value) {
     obj.fields[key] = protocol::MakeBool(value);
 }
 
+std::mutex& FileMutex() {
+    static std::mutex m;
+    return m;
+}
+
 } // namespace
 
 void RegisterFileHandlers(CommandRouter& router, const ServerConfig& config) {
@@ -194,24 +200,18 @@ void RegisterFileHandlers(CommandRouter& router, const ServerConfig& config) {
                 chunkSize = config.maxChunkBytes;
             }
 
+            const std::string uploadId = NewUploadId();
             std::string finalName = filename;
             const std::string finalPath = JoinPath(config.storageDir, finalName);
-            if (FileExists(finalPath)) {
-                if (config.overwrite == "reject") {
-                    resp.ok = false;
-                    resp.code = protocol::ErrorCode::FileExists;
-                    resp.msg = "file exists";
-                    resp.data.fields.clear();
-                    return;
-                }
-                if (config.overwrite == "rename") {
-                    finalName = MakeUniqueName(config.storageDir, finalName);
-                } else if (config.overwrite == "overwrite") {
-                    std::remove(finalPath.c_str());
-                }
+            if (config.overwrite == "reject" && FileExists(finalPath)) {
+                resp.ok = false;
+                resp.code = protocol::ErrorCode::FileExists;
+                resp.msg = "file exists";
+                resp.data.fields.clear();
+                return;
             }
 
-            const std::string tempPath = JoinPath(config.storageDir, finalName + ".part");
+            const std::string tempPath = JoinPath(config.storageDir, finalName + "." + uploadId + ".part");
             std::remove(tempPath.c_str());
 
             auto stream = std::make_unique<std::ofstream>(tempPath, std::ios::binary | std::ios::out | std::ios::trunc);
@@ -225,7 +225,7 @@ void RegisterFileHandlers(CommandRouter& router, const ServerConfig& config) {
 
             st.reset();
             st.inProgress = true;
-            st.uploadId = NewUploadId();
+            st.uploadId = uploadId;
             st.finalName = finalName;
             st.tempPath = tempPath;
             st.declaredSize = static_cast<uint64_t>(fileSize);
@@ -372,19 +372,28 @@ void RegisterFileHandlers(CommandRouter& router, const ServerConfig& config) {
                 return;
             }
 
-            const std::string finalPath = JoinPath(config.storageDir, st.finalName);
-            if (std::rename(st.tempPath.c_str(), finalPath.c_str()) != 0) {
-                if (config.overwrite == "overwrite" && FileExists(finalPath)) {
-                    std::remove(finalPath.c_str());
-                    if (std::rename(st.tempPath.c_str(), finalPath.c_str()) != 0) {
+            std::string finalName = st.finalName;
+            std::string finalPath = JoinPath(config.storageDir, finalName);
+            {
+                std::lock_guard<std::mutex> lock(FileMutex());
+                if (FileExists(finalPath)) {
+                    if (config.overwrite == "reject") {
                         resp.ok = false;
-                        resp.code = protocol::ErrorCode::InternalError;
-                        resp.msg = "rename failed";
+                        resp.code = protocol::ErrorCode::FileExists;
+                        resp.msg = "file exists";
                         resp.data.fields.clear();
                         ResetUpload(session, true);
                         return;
                     }
-                } else {
+                    if (config.overwrite == "rename") {
+                        finalName = MakeUniqueName(config.storageDir, finalName);
+                        finalPath = JoinPath(config.storageDir, finalName);
+                    } else if (config.overwrite == "overwrite") {
+                        std::remove(finalPath.c_str());
+                    }
+                }
+
+                if (std::rename(st.tempPath.c_str(), finalPath.c_str()) != 0) {
                     resp.ok = false;
                     resp.code = protocol::ErrorCode::InternalError;
                     resp.msg = "rename failed";
@@ -394,7 +403,6 @@ void RegisterFileHandlers(CommandRouter& router, const ServerConfig& config) {
                 }
             }
 
-            const std::string finalName = st.finalName;
             const uint64_t finalSize = st.receivedSize;
             ResetUpload(session, false);
 

@@ -1,5 +1,8 @@
+#include <atomic>
 #include <iostream>
+#include <sstream>
 #include <string>
+#include <thread>
 
 #include <winsock2.h>
 #include <ws2tcpip.h>
@@ -14,6 +17,30 @@
 #include "handlers/AdminHandlers.h"
 #include "handlers/BasicHandlers.h"
 #include "handlers/FileHandlers.h"
+
+#include <cstdio>
+
+namespace {
+
+std::string AddrToString(const sockaddr_in& addr) {
+    char ipBuf[INET_ADDRSTRLEN]{};
+    InetNtopA(AF_INET, const_cast<in_addr*>(&addr.sin_addr), ipBuf, sizeof(ipBuf));
+    const unsigned short port = ntohs(addr.sin_port);
+    std::ostringstream oss;
+    oss << ipBuf << ":" << port;
+    return oss.str();
+}
+
+void CleanupSession(server::Session& session) {
+    auto& up = session.upload();
+    if (up.inProgress && !up.tempPath.empty()) {
+        std::remove(up.tempPath.c_str());
+    }
+    up.reset();
+    session.download().reset();
+}
+
+} // namespace
 
 int main() {
     std::cout << "server start\n";
@@ -63,7 +90,11 @@ int main() {
     sockaddr_in addr{};
     addr.sin_family = AF_INET;
     addr.sin_port = htons(config.port);
-    addr.sin_addr.s_addr = htonl(INADDR_ANY);
+    if (InetPtonA(AF_INET, config.bindIp.c_str(), &addr.sin_addr) != 1) {
+        std::cerr << "Invalid bind_ip: " << config.bindIp << "\n";
+        closesocket(listenSock);
+        return 1;
+    }
 
     if (bind(listenSock, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) == SOCKET_ERROR) {
         std::cerr << "bind() failed\n";
@@ -71,13 +102,13 @@ int main() {
         return 1;
     }
 
-    if (listen(listenSock, 1) == SOCKET_ERROR) {
+    if (listen(listenSock, SOMAXCONN) == SOCKET_ERROR) {
         std::cerr << "listen() failed\n";
         closesocket(listenSock);
         return 1;
     }
 
-    std::cout << "listening on port " << config.port << "\n";
+    std::cout << "listening on " << config.bindIp << "\n";
 
     std::string storageErr;
     if (!server::EnsureStorageDir(config.storageDir, storageErr)) {
@@ -91,8 +122,9 @@ int main() {
     server::RegisterAdminHandlers(router);
     server::RegisterFileHandlers(router, config);
 
-    bool serverRunning = true;
-    while (serverRunning) {
+    std::atomic<uint64_t> nextConnId{1};
+
+    while (true) {
         sockaddr_in clientAddr{};
         int clientLen = sizeof(clientAddr);
         SOCKET clientSock = accept(listenSock, reinterpret_cast<sockaddr*>(&clientAddr), &clientLen);
@@ -101,34 +133,49 @@ int main() {
             continue;
         }
 
-        std::cout << "client connected\n";
+        const uint64_t connId = nextConnId.fetch_add(1);
+        const std::string peer = AddrToString(clientAddr);
+        std::cout << "client connected id=" << connId << " from " << peer << "\n";
 
-        server::Session session;
+        std::thread([clientSock, clientAddr, connId, peer, &router]() {
+            server::Session session;
+            std::string reason = "closed";
 
-        bool clientRunning = true;
-        while (clientRunning) {
-            std::string reqJson;
-            if (!net::recvFrame(clientSock, reqJson)) {
-                std::cerr << "recvFrame failed or client closed connection\n";
-                break;
+            while (true) {
+                std::string reqJson;
+                if (!net::recvFrame(clientSock, reqJson)) {
+                    reason = "closed";
+                    break;
+                }
+
+                protocol::RequestMessage req;
+                protocol::ErrorCode parseErr = protocol::ErrorCode::Ok;
+                if (protocol::DecodeRequest(reqJson, req, parseErr)) {
+                    std::cout << "recv request id=" << connId
+                              << " cmd=" << req.cmd
+                              << " level=" << session.levelString()
+                              << "\n";
+                } else {
+                    std::cout << "recv request id=" << connId << " cmd=INVALID\n";
+                }
+
+                std::string respJson;
+                if (!router.Handle(session, reqJson, respJson)) {
+                    reason = "error";
+                    break;
+                }
+
+                if (!net::sendFrame(clientSock, respJson)) {
+                    reason = "error";
+                    break;
+                }
             }
 
-            std::cout << "recv request: " << reqJson << "\n";
-
-            std::string respJson;
-            if (!router.Handle(session, reqJson, respJson)) {
-                std::cerr << "router handle failed\n";
-                break;
-            }
-
-            if (!net::sendFrame(clientSock, respJson)) {
-                std::cerr << "sendFrame failed\n";
-                break;
-            }
-        }
-
-        closesocket(clientSock);
-        std::cout << "client disconnected\n";
+            CleanupSession(session);
+            closesocket(clientSock);
+            std::cout << "client disconnected id=" << connId
+                      << " reason=" << reason << "\n";
+        }).detach();
     }
 
     closesocket(listenSock);

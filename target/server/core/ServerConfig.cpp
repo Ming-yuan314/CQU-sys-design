@@ -24,6 +24,7 @@ ServerConfig DefaultConfig() {
     if (crypto::HexToBytes(cfg.desKeyHex, keyBytes) && keyBytes.size() == 8) {
         cfg.desKeyBytes = keyBytes;
     }
+    cfg.lowUsers.push_back(ServerConfig::LowUser{"user", "1234"});
     return cfg;
 }
 
@@ -61,16 +62,38 @@ ConfigLoadResult LoadServerConfig(const std::string& path, ServerConfig& out, st
         return ConfigLoadResult::Invalid;
     }
 
-    std::string lowUser;
-    if (!protocol::GetString(obj, "low_user", lowUser) || lowUser.empty()) {
-        err = "invalid or missing field: low_user";
-        return ConfigLoadResult::Invalid;
+    std::string bindIp;
+    if (protocol::GetString(obj, "bind_ip", bindIp)) {
+        if (bindIp.empty()) {
+            err = "invalid field: bind_ip";
+            return ConfigLoadResult::Invalid;
+        }
+        out.bindIp = bindIp;
     }
 
-    std::string lowPass;
-    if (!protocol::GetString(obj, "low_pass", lowPass)) {
-        err = "invalid or missing field: low_pass";
+    protocol::JsonArray lowUsersArr;
+    if (!protocol::GetArray(obj, "low_users", lowUsersArr) || lowUsersArr.items.empty()) {
+        err = "invalid or missing field: low_users";
         return ConfigLoadResult::Invalid;
+    }
+    std::vector<ServerConfig::LowUser> lowUsers;
+    lowUsers.reserve(lowUsersArr.items.size());
+    for (const auto& item : lowUsersArr.items) {
+        if (item.type != protocol::JsonValue::Type::Object || !item.o) {
+            err = "invalid low_users item";
+            return ConfigLoadResult::Invalid;
+        }
+        std::string username;
+        std::string password;
+        if (!protocol::GetString(*item.o, "username", username) || username.empty()) {
+            err = "invalid low_users.username";
+            return ConfigLoadResult::Invalid;
+        }
+        if (!protocol::GetString(*item.o, "password", password)) {
+            err = "invalid low_users.password";
+            return ConfigLoadResult::Invalid;
+        }
+        lowUsers.push_back(ServerConfig::LowUser{username, password});
     }
 
     std::string adminUser;
@@ -134,12 +157,11 @@ ConfigLoadResult LoadServerConfig(const std::string& path, ServerConfig& out, st
     }
 
     out.port = static_cast<uint16_t>(port);
-    out.lowUser = lowUser;
-    out.lowPass = lowPass;
     out.adminUser = adminUser;
     out.adminPassPlain = adminPass;
     out.desKeyHex = crypto::BytesToHex(keyBytes);
     out.desKeyBytes = keyBytes;
+    out.lowUsers = std::move(lowUsers);
     return ConfigLoadResult::Ok;
 }
 

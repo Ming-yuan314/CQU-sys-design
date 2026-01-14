@@ -1,7 +1,10 @@
 {
+  "bind_ip": "127.0.0.1",
   "port": 9000,
-  "low_user": "user",
-  "low_pass": "1234",
+  "low_users": [
+    { "username": "user", "password": "1234" },
+    { "username": "user2", "password": "abcd" }
+  ],
   "admin_user": "admin",
   "admin_pass_plain": "adminpw",
   "des_key_hex": "0123456789ABCDEF",

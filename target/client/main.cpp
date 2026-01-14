@@ -141,15 +141,23 @@ void RenderResponseData(const std::string& cmdUpper, const protocol::ResponseMes
         return;
     }
 
-    if (cmdUpper == "LOGIN_LOW" || cmdUpper == "LOGIN_HIGH") {
+    if (cmdUpper == "LOGIN_LOW" || cmdUpper == "LOGIN_HIGH" || cmdUpper == "LOGOUT") {
         std::string level;
         std::string username;
         protocol::GetString(resp.data, "level", level);
         protocol::GetString(resp.data, "username", username);
-        if (!level.empty() && !username.empty()) {
-            std::cout << "Logged in as " << username << " (" << level << ")\n";
-        } else if (!level.empty()) {
-            std::cout << "Level: " << level << "\n";
+        if (cmdUpper == "LOGOUT") {
+            if (!level.empty() && !username.empty()) {
+                std::cout << "Now at " << level << " as " << username << "\n";
+            } else if (!level.empty()) {
+                std::cout << "Now at " << level << "\n";
+            }
+        } else {
+            if (!level.empty() && !username.empty()) {
+                std::cout << "Logged in as " << username << " (" << level << ")\n";
+            } else if (!level.empty()) {
+                std::cout << "Level: " << level << "\n";
+            }
         }
         return;
     }

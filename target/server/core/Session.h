@@ -73,6 +73,10 @@ public:
     const std::string& username() const { return username_; }
     void setUsername(const std::string& name) { username_ = name; }
 
+    const std::string& lowUsername() const { return lowUsername_; }
+    void setLowUsername(const std::string& name) { lowUsername_ = name; }
+    void clearLowUsername() { lowUsername_.clear(); }
+
     std::string levelString() const {
         switch (level_) {
         case Level::Guest:
@@ -94,6 +98,7 @@ public:
 private:
     Level level_ = Level::Guest;
     std::string username_;
+    std::string lowUsername_;
     UploadState upload_;
     DownloadState download_;
 };

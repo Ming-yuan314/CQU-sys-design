@@ -73,6 +73,7 @@ void RegisterBasicHandlers(CommandRouter& router) {
             if (session.level() == Session::Level::Low || session.level() == Session::Level::High) {
                 add("WHOAMI", "Show current login level");
                 add("TIME", "Show server time");
+                add("LOGOUT", "Logout current session");
             }
 
             if (session.level() == Session::Level::Low) {

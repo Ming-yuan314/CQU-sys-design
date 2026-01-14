@@ -43,7 +43,14 @@ void RegisterAuthHandlers(CommandRouter& router, const ServerConfig& config) {
                 return;
             }
 
-            if (user != config.lowUser || pass != config.lowPass) {
+            bool matched = false;
+            for (const auto& u : config.lowUsers) {
+                if (u.username == user && u.password == pass) {
+                    matched = true;
+                    break;
+                }
+            }
+            if (!matched) {
                 std::cout << "LOGIN_LOW failed for user: " << user << "\n";
                 resp.ok = false;
                 resp.code = protocol::ErrorCode::BadRequest;
@@ -54,6 +61,7 @@ void RegisterAuthHandlers(CommandRouter& router, const ServerConfig& config) {
 
             session.setLevel(Session::Level::Low);
             session.setUsername(user);
+            session.setLowUsername(user);
 
             std::cout << "LOGIN_LOW success for user: " << user << "\n";
             resp.ok = true;
@@ -137,6 +145,31 @@ void RegisterAuthHandlers(CommandRouter& router, const ServerConfig& config) {
             resp.ok = true;
             resp.code = protocol::ErrorCode::Ok;
             resp.msg = "login_high_ok";
+            resp.data.fields.clear();
+            SetString(resp.data, "level", session.levelString());
+            SetString(resp.data, "username", session.username());
+        });
+
+    router.RegisterCommand("LOGOUT", Session::Level::Low,
+        [](const protocol::RequestMessage&, Session& session, protocol::ResponseMessage& resp) {
+            if (session.level() == Session::Level::High) {
+                session.setLevel(Session::Level::Low);
+                session.setUsername(session.lowUsername());
+            } else if (session.level() == Session::Level::Low) {
+                session.setLevel(Session::Level::Guest);
+                session.setUsername("");
+                session.clearLowUsername();
+            } else {
+                resp.ok = false;
+                resp.code = protocol::ErrorCode::BadRequest;
+                resp.msg = "not logged in";
+                resp.data.fields.clear();
+                return;
+            }
+
+            resp.ok = true;
+            resp.code = protocol::ErrorCode::Ok;
+            resp.msg = "logout_ok";
             resp.data.fields.clear();
             SetString(resp.data, "level", session.levelString());
             SetString(resp.data, "username", session.username());
