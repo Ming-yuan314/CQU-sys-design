@@ -13,6 +13,7 @@
 #include "handlers/AuthHandlers.h"
 #include "handlers/AdminHandlers.h"
 #include "handlers/BasicHandlers.h"
+#include "handlers/FileHandlers.h"
 
 int main() {
     std::cout << "server start\n";
@@ -78,10 +79,17 @@ int main() {
 
     std::cout << "listening on port " << config.port << "\n";
 
+    std::string storageErr;
+    if (!server::EnsureStorageDir(config.storageDir, storageErr)) {
+        std::cerr << "Storage dir error: " << storageErr << "\n";
+        return 1;
+    }
+
     server::CommandRouter router;
     server::RegisterAuthHandlers(router, config);
     server::RegisterBasicHandlers(router);
     server::RegisterAdminHandlers(router);
+    server::RegisterFileHandlers(router, config);
 
     bool serverRunning = true;
     while (serverRunning) {

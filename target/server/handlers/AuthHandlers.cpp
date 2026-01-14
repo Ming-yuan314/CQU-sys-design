@@ -18,6 +18,13 @@ void SetString(protocol::JsonObject& obj, const std::string& key, const std::str
 void RegisterAuthHandlers(CommandRouter& router, const ServerConfig& config) {
     router.RegisterCommand("LOGIN_LOW", Session::Level::Guest,
         [config](const protocol::RequestMessage& req, Session& session, protocol::ResponseMessage& resp) {
+            if (session.level() != Session::Level::Guest) {
+                resp.ok = false;
+                resp.code = protocol::ErrorCode::BadRequest;
+                resp.msg = "already logged in";
+                resp.data.fields.clear();
+                return;
+            }
             std::string user;
             if (!protocol::GetString(req.args, "username", user)) {
                 resp.ok = false;
@@ -59,6 +66,13 @@ void RegisterAuthHandlers(CommandRouter& router, const ServerConfig& config) {
 
     router.RegisterCommand("LOGIN_HIGH", Session::Level::Low,
         [config](const protocol::RequestMessage& req, Session& session, protocol::ResponseMessage& resp) {
+            if (session.level() != Session::Level::Low) {
+                resp.ok = false;
+                resp.code = protocol::ErrorCode::BadRequest;
+                resp.msg = "already high";
+                resp.data.fields.clear();
+                return;
+            }
             std::string user;
             if (!protocol::GetString(req.args, "username", user)) {
                 resp.ok = false;

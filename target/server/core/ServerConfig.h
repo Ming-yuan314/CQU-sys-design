@@ -14,6 +14,10 @@ struct ServerConfig {
     std::string adminPassPlain = "adminpw";
     std::string desKeyHex = "0123456789ABCDEF";
     std::vector<uint8_t> desKeyBytes;
+    std::string storageDir = "server_files";
+    uint64_t maxFileSize = 50 * 1024 * 1024;
+    uint32_t maxChunkBytes = 64 * 1024;
+    std::string overwrite = "reject";
 };
 
 enum class ConfigLoadResult {
@@ -23,5 +27,6 @@ enum class ConfigLoadResult {
 };
 
 ConfigLoadResult LoadServerConfig(const std::string& path, ServerConfig& out, std::string& err);
+bool EnsureStorageDir(const std::string& path, std::string& err);
 
 } // namespace server

@@ -38,8 +38,8 @@ struct JsonArray {
 };
 
 struct JsonLimits {
-    size_t maxJsonSize = 64 * 1024;
-    size_t maxStringSize = 16 * 1024;
+    size_t maxJsonSize = 256 * 1024;
+    size_t maxStringSize = 128 * 1024;
     size_t maxFields = 64;
     size_t maxArraySize = 64;
     size_t maxDepth = 4;

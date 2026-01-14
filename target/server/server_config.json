@@ -4,5 +4,9 @@
   "low_pass": "1234",
   "admin_user": "admin",
   "admin_pass_plain": "adminpw",
-  "des_key_hex": "0123456789ABCDEF"
+  "des_key_hex": "0123456789ABCDEF",
+  "storage_dir": "server_files",
+  "max_file_size": 52428800,
+  "max_chunk_bytes": 65536,
+  "overwrite": "reject"
 }

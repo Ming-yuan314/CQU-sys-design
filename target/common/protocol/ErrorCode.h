@@ -8,6 +8,11 @@ enum class ErrorCode : int {
     UnknownCmd = 1002,
     NotLogin = 1003,
     NoPermission = 1004,
+    FileExists = 2001,
+    FileNotFound = 2002,
+    TransferStateError = 2003,
+    SizeMismatch = 2004,
+    ChecksumMismatch = 2005,
     InternalError = 1500
 };
 

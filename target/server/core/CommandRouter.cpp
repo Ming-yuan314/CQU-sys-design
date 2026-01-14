@@ -25,7 +25,7 @@ protocol::ResponseMessage MakeError(protocol::ErrorCode code, const std::string&
 }
 
 protocol::ErrorCode CheckPermission(Session::Level need, Session::Level cur) {
-    if (cur == need || cur == Session::Level::High) {
+    if (static_cast<int>(cur) >= static_cast<int>(need)) {
         return protocol::ErrorCode::Ok;
     }
     if (need == Session::Level::Low) {

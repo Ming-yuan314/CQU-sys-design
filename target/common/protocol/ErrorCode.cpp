@@ -14,6 +14,16 @@ const char* ErrorCodeToString(ErrorCode code) {
         return "NotLogin";
     case ErrorCode::NoPermission:
         return "NoPermission";
+    case ErrorCode::FileExists:
+        return "FileExists";
+    case ErrorCode::FileNotFound:
+        return "FileNotFound";
+    case ErrorCode::TransferStateError:
+        return "TransferStateError";
+    case ErrorCode::SizeMismatch:
+        return "SizeMismatch";
+    case ErrorCode::ChecksumMismatch:
+        return "ChecksumMismatch";
     case ErrorCode::InternalError:
         return "InternalError";
     default:
@@ -37,6 +47,16 @@ ErrorCode ErrorCodeFromInt(int code) {
         return ErrorCode::NotLogin;
     case 1004:
         return ErrorCode::NoPermission;
+    case 2001:
+        return ErrorCode::FileExists;
+    case 2002:
+        return ErrorCode::FileNotFound;
+    case 2003:
+        return ErrorCode::TransferStateError;
+    case 2004:
+        return ErrorCode::SizeMismatch;
+    case 2005:
+        return ErrorCode::ChecksumMismatch;
     case 1500:
         return ErrorCode::InternalError;
     default:

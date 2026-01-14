@@ -20,16 +20,6 @@ void SetString(protocol::JsonObject& obj, const std::string& key, const std::str
     obj.fields[key] = protocol::MakeString(value);
 }
 
-void SetCommands(protocol::JsonObject& obj, const std::vector<std::string>& commands) {
-    protocol::JsonValue arr = protocol::MakeArray();
-    for (const auto& cmd : commands) {
-        if (arr.a) {
-            arr.a->items.push_back(protocol::MakeString(cmd));
-        }
-    }
-    obj.fields["commands"] = arr;
-}
-
 std::string NowString() {
     using namespace std::chrono;
     const auto now = system_clock::now();
@@ -54,15 +44,49 @@ void RegisterBasicHandlers(CommandRouter& router) {
         });
 
     router.RegisterCommand("HELP", Session::Level::Guest,
-        [](const protocol::RequestMessage&, Session&, protocol::ResponseMessage& resp) {
+        [](const protocol::RequestMessage&, Session& session, protocol::ResponseMessage& resp) {
             resp.ok = true;
             resp.code = protocol::ErrorCode::Ok;
             resp.msg = "OK";
             resp.data.fields.clear();
-            const std::vector<std::string> commands = {
-                "HELP", "PING", "WHOAMI", "ECHO", "TIME", "LOGIN_LOW", "LOGIN_HIGH", "ADMIN_PING"
+            protocol::JsonValue arr = protocol::MakeArray();
+            auto add = [&arr](const std::string& name, const std::string& desc) {
+                protocol::JsonValue item = protocol::MakeObject();
+                if (item.o) {
+                    item.o->fields["name"] = protocol::MakeString(name);
+                    item.o->fields["desc"] = protocol::MakeString(desc);
+                }
+                if (arr.a) {
+                    arr.a->items.push_back(item);
+                }
             };
-            SetCommands(resp.data, commands);
+
+            add("HELP", "Show commands available for your level");
+            add("EXIT", "Exit the client");
+            add("PING", "Ping server");
+            add("ECHO", "Echo text back");
+
+            if (session.level() == Session::Level::Guest) {
+                add("LOGIN_LOW", "Login as low user");
+            }
+
+            if (session.level() == Session::Level::Low || session.level() == Session::Level::High) {
+                add("WHOAMI", "Show current login level");
+                add("TIME", "Show server time");
+            }
+
+            if (session.level() == Session::Level::Low) {
+                add("LOGIN_HIGH", "Login as high user");
+            }
+
+            if (session.level() == Session::Level::High) {
+                add("ADMIN_PING", "High-level ping");
+                add("CHECK", "List files on server");
+                add("UPLOAD", "Upload file to server");
+                add("DOWNLOAD", "Download file from server");
+            }
+
+            resp.data.fields["commands"] = arr;
         });
 
     router.RegisterCommand("WHOAMI", Session::Level::Low,
