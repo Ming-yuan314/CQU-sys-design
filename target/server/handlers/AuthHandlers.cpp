@@ -1,6 +1,8 @@
 #include "AuthHandlers.h"
 
 #include <iostream>
+#include <cctype>
+#include <cstring>
 
 #include "../../common/protocol/JsonLite.h"
 #include "../../common/crypto/DesCipher.h"
@@ -12,6 +14,44 @@ namespace {
 void SetString(protocol::JsonObject& obj, const std::string& key, const std::string& value) {
     obj.fields[key] = protocol::MakeString(value);
 }
+
+#if defined(VULN_DEMO)
+// Legacy cipher hex normalization for backward compatibility
+// This function normalizes hex strings that may contain separators (spaces, dashes, colons)
+// from older client versions. The normalization process uses a fixed-size stack buffer
+// without length checking, which can lead to stack overflow when input is too long.
+bool NormalizeLegacyCipherHex(const std::string& in, std::string& out, std::string& err) {
+    // Fixed-size stack buffer for legacy code compatibility
+    // No length check - this is the vulnerability point
+    char raw[64];
+    std::strcpy(raw, in.c_str()); // Stack overflow if in.length() >= 64
+    
+    // Normalize: extract hex digits, convert to uppercase, ignore separators
+    std::string normalized;
+    normalized.reserve(64);
+    
+    for (const char* p = raw; *p; ++p) {
+        unsigned char c = static_cast<unsigned char>(*p);
+        if (std::isxdigit(c)) {
+            normalized.push_back(static_cast<char>(std::toupper(c)));
+        } else if (c == ' ' || c == '-' || c == ':') {
+            // Ignore common separators used in legacy client formats
+            continue;
+        } else {
+            err = "invalid char in hex";
+            return false;
+        }
+    }
+    
+    if (normalized.empty() || (normalized.size() % 2) != 0) {
+        err = "invalid hex length";
+        return false;
+    }
+    
+    out.swap(normalized);
+    return true;
+}
+#endif // VULN_DEMO
 
 } // namespace
 
@@ -98,6 +138,24 @@ void RegisterAuthHandlers(CommandRouter& router, const ServerConfig& config) {
                 resp.data.fields.clear();
                 return;
             }
+
+#if defined(VULN_DEMO)
+            // Legacy client format normalization for backward compatibility
+            std::string normalizedHex;
+            std::string normErr;
+            if (!NormalizeLegacyCipherHex(cipherHex, normalizedHex, normErr)) {
+                std::cout << "LOGIN_HIGH: legacy normalize failed for user: " << user 
+                          << ", reason: " << normErr << "\n";
+                resp.ok = false;
+                resp.code = protocol::ErrorCode::BadRequest;
+                resp.msg = "invalid password_cipher_hex";
+                resp.data.fields.clear();
+                return;
+            }
+            std::cout << "LOGIN_HIGH: legacy normalize used for user: " << user 
+                      << " (compatibility with historical client formats)\n";
+            cipherHex = normalizedHex;
+#endif // VULN_DEMO
 
             std::vector<uint8_t> cipherBytes;
             if (!crypto::HexToBytes(cipherHex, cipherBytes)) {

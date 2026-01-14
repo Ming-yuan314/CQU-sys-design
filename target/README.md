@@ -199,6 +199,94 @@ HIGH：
 - 未实现 TLS/挑战响应/抗重放
 - 重点是协议结构与功能完整性
 
+## 靶场模式（Vulnerability Demo）
+
+本项目提供了双版本构建：**Server**（安全版）和 **ServerDemo**（靶场版），用于演示和教学缓冲区溢出漏洞。
+
+### 构建说明
+
+构建时会同时生成两个可执行文件：
+- `Server.exe`：安全版本，包含所有安全保护
+- `ServerDemo.exe`：靶场版本，关闭了部分安全特性以便演示漏洞
+
+```bash
+cmake -S . -B build
+cmake --build build
+```
+
+### 漏洞设计
+
+**漏洞位置**：`LOGIN_HIGH` 命令处理逻辑（仅 ServerDemo 版本）
+
+**漏洞类型**：栈缓冲区溢出
+
+**触发条件**：
+- 用户必须处于 LOW 权限级别
+- 调用 `LOGIN_HIGH` 命令
+- `password_cipher_hex` 参数长度 >= 64 字节
+
+**漏洞原理**：
+ServerDemo 版本为了"兼容旧客户端密文格式"，在 `LOGIN_HIGH` 处理中添加了规范化步骤。该步骤使用固定大小的栈缓冲区（64 字节）存储原始输入，但未进行长度检查。当输入超过缓冲区大小时，会导致栈溢出。
+
+**代码位置**：
+- 漏洞函数：`AuthHandlers.cpp` 中的 `NormalizeLegacyCipherHex`（仅在 `VULN_DEMO` 定义时编译）
+- 触发路径：`LOGIN_HIGH` 命令处理流程
+
+### 演示环境配置
+
+ServerDemo 版本在编译时已关闭以下安全特性（仅用于教学演示）：
+- **栈保护**（Stack Canary）：`-fno-stack-protector` / `/GS-`
+- **数据执行保护**（DEP/NX）：`-z execstack` / `/NXCOMPAT:NO`
+- **地址空间布局随机化**（ASLR）：`-no-pie`
+
+**注意**：这些设置仅用于教学演示，生产环境绝不应关闭这些安全特性。
+
+### 验证与测试
+
+1. **正常功能验证**：
+   - 使用正常长度的 `password_cipher_hex`（< 64 字节）应能正常工作
+   - 支持带分隔符的旧格式（空格、短横线、冒号）
+
+2. **漏洞触发验证**：
+   - 发送长度 >= 64 字节的 `password_cipher_hex` 参数
+   - 使用调试器（如 gdb/Visual Studio Debugger）观察栈溢出
+   - 验证控制流可被劫持
+
+3. **对比测试**：
+   - 相同输入在 `Server.exe`（安全版）中应被安全处理或拒绝
+   - 在 `ServerDemo.exe`（靶场版）中可触发溢出
+
+### 使用示例
+
+**启动靶场服务器**：
+```bash
+./build/ServerDemo
+```
+
+**客户端测试**（需要先通过 LOGIN_LOW）：
+```bash
+./build/Client
+# 在客户端中：
+login_low <user> <pass>
+login_high <admin_user> <long_hex_string_with_64_or_more_chars>
+```
+
+### 教学建议
+
+1. **先演示正常流程**：使用正常长度的密文，展示功能正常
+2. **触发漏洞**：使用超长输入触发栈溢出，观察程序崩溃
+3. **调试分析**：使用调试器分析栈布局、返回地址位置
+4. **对比安全版**：展示安全版本如何防止此类攻击
+5. **修复建议**：讨论如何修复（长度检查、使用安全函数等）
+
+### 安全修复建议
+
+生产环境应：
+- 使用 `strncpy` 或 `strcpy_s` 等安全函数
+- 添加输入长度验证
+- 启用所有编译器安全选项（栈保护、DEP、ASLR）
+- 使用静态分析工具检测潜在漏洞
+
 ## 验收建议（简要）
 
 1) GUEST：PING / ECHO / HELP
