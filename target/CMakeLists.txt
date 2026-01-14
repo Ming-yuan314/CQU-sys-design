@@ -31,6 +31,7 @@ set(COMMON_SOURCES
   common/dummy.cpp
   common/net/SocketInit.cpp
   common/net/FramedIO.cpp
+  common/crypto/DesCipher.cpp
   common/protocol/ErrorCode.cpp
   common/protocol/JsonLite.cpp
   common/protocol/Message.cpp
@@ -41,6 +42,7 @@ set(SERVER_SOURCES
   server/core/CommandRouter.cpp
   server/core/ServerConfig.cpp
   server/handlers/AuthHandlers.cpp
+  server/handlers/AdminHandlers.cpp
   server/handlers/BasicHandlers.cpp
   ${COMMON_SOURCES}
 )

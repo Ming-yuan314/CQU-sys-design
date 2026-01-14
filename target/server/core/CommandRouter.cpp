@@ -66,7 +66,7 @@ bool CommandRouter::Handle(Session& session, const std::string& reqJson, std::st
     const protocol::ErrorCode perm = CheckPermission(it->second.required, session.level());
     if (perm != protocol::ErrorCode::Ok) {
         const char* msg = (perm == protocol::ErrorCode::NotLogin)
-            ? "not login"
+            ? (cmd == "LOGIN_HIGH" ? "need low login" : "not login")
             : "no permission";
         protocol::ResponseMessage resp = MakeError(perm, msg);
         return protocol::EncodeResponse(resp, respJson);

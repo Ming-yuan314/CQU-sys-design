@@ -60,7 +60,7 @@ void RegisterBasicHandlers(CommandRouter& router) {
             resp.msg = "OK";
             resp.data.fields.clear();
             const std::vector<std::string> commands = {
-                "HELP", "PING", "WHOAMI", "ECHO", "TIME", "LOGIN_LOW"
+                "HELP", "PING", "WHOAMI", "ECHO", "TIME", "LOGIN_LOW", "LOGIN_HIGH", "ADMIN_PING"
             };
             SetCommands(resp.data, commands);
         });

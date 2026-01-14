@@ -1,6 +1,8 @@
+#include <fstream>
 #include <iostream>
-#include <string>
 #include <sstream>
+#include <string>
+#include <vector>
 
 #include <winsock2.h>
 #include <ws2tcpip.h>
@@ -10,10 +12,97 @@
 #include "../common/net/SocketInit.h"
 #include "../common/protocol/Message.h"
 #include "../common/protocol/JsonLite.h"
+#include "../common/crypto/DesCipher.h"
+
+namespace {
+
+struct ClientConfig {
+    std::string desKeyHex = "0123456789ABCDEF";
+    std::vector<uint8_t> desKeyBytes;
+};
+
+bool LoadClientConfigFile(const std::string& path,
+                          ClientConfig& out,
+                          std::string& err,
+                          bool& found) {
+    found = false;
+    std::ifstream fin(path);
+    if (!fin.is_open()) {
+        return false;
+    }
+    found = true;
+
+    std::ostringstream oss;
+    oss << fin.rdbuf();
+    const std::string content = oss.str();
+
+    protocol::JsonValue root;
+    protocol::JsonLimits limits;
+    if (!protocol::ParseJson(content, root, limits)) {
+        err = "failed to parse config json";
+        return false;
+    }
+    if (root.type != protocol::JsonValue::Type::Object || !root.o) {
+        err = "config root is not object";
+        return false;
+    }
+
+    protocol::JsonObject obj = *root.o;
+    std::string desKeyHex;
+    if (!protocol::GetString(obj, "des_key_hex", desKeyHex)) {
+        err = "invalid or missing field: des_key_hex";
+        return false;
+    }
+
+    std::vector<uint8_t> keyBytes;
+    if (!crypto::HexToBytes(desKeyHex, keyBytes) || keyBytes.size() != 8) {
+        err = "invalid des_key_hex (need 16 hex chars)";
+        return false;
+    }
+
+    out.desKeyHex = crypto::BytesToHex(keyBytes);
+    out.desKeyBytes = keyBytes;
+    return true;
+}
+
+} // namespace
 
 int main() {
     std::cout << "client start\n";
     std::cout << common::build_info() << "\n";
+
+    ClientConfig config;
+    std::string configErr;
+    const std::string configPaths[] = {
+        "client/client_config.json",
+        "../client/client_config.json",
+        "client_config.json",
+        "target/client/client_config.json"
+    };
+    bool loaded = false;
+    bool invalid = false;
+    for (const auto& path : configPaths) {
+        bool found = false;
+        if (LoadClientConfigFile(path, config, configErr, found)) {
+            std::cout << "Client config loaded from " << path << "\n";
+            loaded = true;
+            break;
+        }
+        if (found) {
+            std::cerr << "Client config invalid: " << configErr << "\n";
+            invalid = true;
+            break;
+        }
+    }
+    if (invalid) {
+        return 1;
+    }
+    if (!loaded) {
+        std::vector<uint8_t> keyBytes;
+        crypto::HexToBytes(config.desKeyHex, keyBytes);
+        config.desKeyBytes = keyBytes;
+        std::cout << "Client config not found, using default DES key\n";
+    }
 
     net::SocketInit sockInit;
     if (!sockInit.ok()) {
@@ -103,6 +192,26 @@ int main() {
                 }
                 req.args.fields["username"] = protocol::MakeString(user);
                 req.args.fields["password"] = protocol::MakeString(pass);
+            } else if (cmdUpper == "LOGIN_HIGH") {
+                std::istringstream iss(rest);
+                std::string user;
+                std::string passPlain;
+                if (!(iss >> user >> passPlain)) {
+                    std::cout << "Usage: login_high <user> <pass_plain>\n";
+                    continue;
+                }
+                if (config.desKeyBytes.size() != 8) {
+                    std::cout << "DES key not configured\n";
+                    continue;
+                }
+                std::string cipherHex;
+                std::string err;
+                if (!crypto::DesEncryptEcbPkcs7Hex(passPlain, config.desKeyBytes, cipherHex, err)) {
+                    std::cout << "Encrypt failed: " << err << "\n";
+                    continue;
+                }
+                req.args.fields["username"] = protocol::MakeString(user);
+                req.args.fields["password_cipher_hex"] = protocol::MakeString(cipherHex);
             } else if (cmdUpper == "ECHO") {
                 if (rest.empty()) {
                     std::cout << "Usage: ECHO <text>\n";

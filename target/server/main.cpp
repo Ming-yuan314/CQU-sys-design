@@ -11,6 +11,7 @@
 #include "core/CommandRouter.h"
 #include "core/ServerConfig.h"
 #include "handlers/AuthHandlers.h"
+#include "handlers/AdminHandlers.h"
 #include "handlers/BasicHandlers.h"
 
 int main() {
@@ -31,15 +32,25 @@ int main() {
         "server_config.json"
     };
     bool loaded = false;
+    bool invalid = false;
     for (const auto& path : configPaths) {
-        if (server::LoadServerConfig(path, config, configErr)) {
+        const server::ConfigLoadResult result = server::LoadServerConfig(path, config, configErr);
+        if (result == server::ConfigLoadResult::Ok) {
             std::cout << "Config loaded from " << path << "\n";
             loaded = true;
             break;
         }
+        if (result == server::ConfigLoadResult::Invalid) {
+            std::cerr << "Config invalid: " << configErr << "\n";
+            invalid = true;
+            break;
+        }
+    }
+    if (invalid) {
+        return 1;
     }
     if (!loaded) {
-        std::cerr << "Config load failed: " << configErr << ", using defaults\n";
+        std::cerr << "Config not found, using defaults\n";
     }
 
     SOCKET listenSock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
@@ -70,6 +81,7 @@ int main() {
     server::CommandRouter router;
     server::RegisterAuthHandlers(router, config);
     server::RegisterBasicHandlers(router);
+    server::RegisterAdminHandlers(router);
 
     bool serverRunning = true;
     while (serverRunning) {

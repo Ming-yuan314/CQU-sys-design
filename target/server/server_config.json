@@ -1,5 +1,8 @@
 {
   "port": 9000,
   "low_user": "user",
-  "low_pass": "1234"
+  "low_pass": "1234",
+  "admin_user": "admin",
+  "admin_pass_plain": "adminpw",
+  "des_key_hex": "0123456789ABCDEF"
 }
