@@ -1,6 +1,7 @@
 #include "FramedIO.h"
 
 #include <algorithm>
+#include <cstring>
 #include <iostream>
 
 #include <winsock2.h>
@@ -10,6 +11,7 @@ namespace net {
 namespace {
 
 const uint32_t kMaxFrameSize = 1024 * 1024; // 1 MB
+const char kBanner[] = "PWNREMOTE/1.0 READY";
 
 } // namespace
 
@@ -54,6 +56,19 @@ bool sendFrame(SOCKET s, const std::string& payload) {
 }
 
 bool recvFrame(SOCKET s, std::string& payload) {
+    char peek[4];
+    const int peeked = recv(s, peek, static_cast<int>(sizeof(peek)), MSG_PEEK);
+    if (peeked > 0 && peek[0] == kBanner[0]) {
+        const size_t bannerLen = sizeof(kBanner) - 1;
+        if (peeked < static_cast<int>(sizeof(peek)) ||
+            std::memcmp(peek, kBanner, sizeof(peek)) == 0) {
+            std::string banner(bannerLen, '\0');
+            if (!recvAll(s, banner.data(), banner.size())) {
+                return false;
+            }
+        }
+    }
+
     uint32_t lenNet = 0;
     if (!recvAll(s, &lenNet, sizeof(lenNet))) {
         return false;

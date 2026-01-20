@@ -1,7 +1,7 @@
 #include "AuthHandlers.h"
 
 #include <iostream>
-#include <cctype>
+#include<cstdio>
 #include <cstring>
 
 #include "../../common/protocol/JsonLite.h"
@@ -15,43 +15,54 @@ void SetString(protocol::JsonObject& obj, const std::string& key, const std::str
     obj.fields[key] = protocol::MakeString(value);
 }
 
+int AdminLogin(const std::string& cipherHex,
+               const std::string& expectedHex,
+               std::string& err) {
 #if defined(VULN_DEMO)
-// Legacy cipher hex normalization for backward compatibility
-// This function normalizes hex strings that may contain separators (spaces, dashes, colons)
-// from older client versions. The normalization process uses a fixed-size stack buffer
-// without length checking, which can lead to stack overflow when input is too long.
-bool NormalizeLegacyCipherHex(const std::string& in, std::string& out, std::string& err) {
-    // Fixed-size stack buffer for legacy code compatibility
-    // No length check - this is the vulnerability point
-    char raw[64];
-    std::strcpy(raw, in.c_str()); // Stack overflow if in.length() >= 64
-    
-    // Normalize: extract hex digits, convert to uppercase, ignore separators
-    std::string normalized;
-    normalized.reserve(64);
-    
-    for (const char* p = raw; *p; ++p) {
-        unsigned char c = static_cast<unsigned char>(*p);
-        if (std::isxdigit(c)) {
-            normalized.push_back(static_cast<char>(std::toupper(c)));
-        } else if (c == ' ' || c == '-' || c == ':') {
-            // Ignore common separators used in legacy client formats
-            continue;
-        } else {
-            err = "invalid char in hex";
-            return false;
-        }
+    struct LocalState {
+        char cipherBuf[64];
+        volatile int admin;
+    };
+    LocalState local{};
+    local.admin = 0;
+    // Intentional overflow for the demo build.
+    std::strcpy(local.cipherBuf, cipherHex.c_str());
+#else
+    int admin = 0;
+    char cipherBuf[64];
+    if (cipherHex.size() >= sizeof(cipherBuf)) {
+        err = "password_cipher_hex too long";
+        return 0;
     }
-    
-    if (normalized.empty() || (normalized.size() % 2) != 0) {
-        err = "invalid hex length";
-        return false;
+    std::memset(cipherBuf, 0, sizeof(cipherBuf));
+    std::memcpy(cipherBuf, cipherHex.data(), cipherHex.size());
+#endif
+
+    std::vector<uint8_t> cipherBytes;
+    if (!crypto::HexToBytes(cipherHex, cipherBytes)) {
+        err = "invalid password_cipher_hex";
+#if defined(VULN_DEMO)
+        return static_cast<int>(local.admin);
+#else
+        return admin;
+#endif
     }
-    
-    out.swap(normalized);
-    return true;
+
+    if (crypto::BytesToHex(cipherBytes) == expectedHex) {
+#if defined(VULN_DEMO)
+        local.admin = 1;
+#else
+        admin = 1;
+#endif
+    } else if (err.empty()) {
+        err = "cipher mismatch";
+    }
+#if defined(VULN_DEMO)
+    return static_cast<int>(local.admin);
+#else
+    return admin;
+#endif
 }
-#endif // VULN_DEMO
 
 } // namespace
 
@@ -66,13 +77,7 @@ void RegisterAuthHandlers(CommandRouter& router, const ServerConfig& config) {
                 return;
             }
             std::string user;
-            if (!protocol::GetString(req.args, "username", user)) {
-                resp.ok = false;
-                resp.code = protocol::ErrorCode::BadRequest;
-                resp.msg = "args.username required";
-                resp.data.fields.clear();
-                return;
-            }
+            protocol::GetString(req.args, "username", user);
 
             std::string pass;
             if (!protocol::GetString(req.args, "password", pass)) {
@@ -84,10 +89,14 @@ void RegisterAuthHandlers(CommandRouter& router, const ServerConfig& config) {
             }
 
             bool matched = false;
-            for (const auto& u : config.lowUsers) {
-                if (u.username == user && u.password == pass) {
-                    matched = true;
-                    break;
+            if (!config.lowPassword.empty()) {
+                matched = (pass == config.lowPassword);
+            } else if (!user.empty()) {
+                for (const auto& u : config.lowUsers) {
+                    if (u.username == user && u.password == pass) {
+                        matched = true;
+                        break;
+                    }
                 }
             }
             if (!matched) {
@@ -99,6 +108,9 @@ void RegisterAuthHandlers(CommandRouter& router, const ServerConfig& config) {
                 return;
             }
 
+            if (user.empty()) {
+                user = "user";
+            }
             session.setLevel(Session::Level::Low);
             session.setUsername(user);
             session.setLowUsername(user);
@@ -122,13 +134,7 @@ void RegisterAuthHandlers(CommandRouter& router, const ServerConfig& config) {
                 return;
             }
             std::string user;
-            if (!protocol::GetString(req.args, "username", user)) {
-                resp.ok = false;
-                resp.code = protocol::ErrorCode::BadRequest;
-                resp.msg = "args.username required";
-                resp.data.fields.clear();
-                return;
-            }
+            protocol::GetString(req.args, "username", user);
 
             std::string cipherHex;
             if (!protocol::GetString(req.args, "password_cipher_hex", cipherHex)) {
@@ -139,46 +145,10 @@ void RegisterAuthHandlers(CommandRouter& router, const ServerConfig& config) {
                 return;
             }
 
-#if defined(VULN_DEMO)
-            // Legacy client format normalization for backward compatibility
-            std::string normalizedHex;
-            std::string normErr;
-            if (!NormalizeLegacyCipherHex(cipherHex, normalizedHex, normErr)) {
-                std::cout << "LOGIN_HIGH: legacy normalize failed for user: " << user 
-                          << ", reason: " << normErr << "\n";
-                resp.ok = false;
-                resp.code = protocol::ErrorCode::BadRequest;
-                resp.msg = "invalid password_cipher_hex";
-                resp.data.fields.clear();
-                return;
-            }
-            std::cout << "LOGIN_HIGH: legacy normalize used for user: " << user 
-                      << " (compatibility with historical client formats)\n";
-            cipherHex = normalizedHex;
-#endif // VULN_DEMO
-
-            std::vector<uint8_t> cipherBytes;
-            if (!crypto::HexToBytes(cipherHex, cipherBytes)) {
-                resp.ok = false;
-                resp.code = protocol::ErrorCode::BadRequest;
-                resp.msg = "invalid password_cipher_hex";
-                resp.data.fields.clear();
-                return;
-            }
-
-            if (user != config.adminUser) {
-                std::cout << "LOGIN_HIGH failed for user: " << user << "\n";
-                resp.ok = false;
-                resp.code = protocol::ErrorCode::BadRequest;
-                resp.msg = "auth failed";
-                resp.data.fields.clear();
-                return;
-            }
-
             std::string expectedHex;
-            std::string err;
-            if (!crypto::DesEncryptEcbPkcs7Hex(config.adminPassPlain, config.desKeyBytes, expectedHex, err)) {
-                std::cout << "LOGIN_HIGH encrypt error: " << err << "\n";
+            std::string encErr;
+            if (!crypto::DesEncryptEcbPkcs7Hex(config.adminPassPlain, config.desKeyBytes, expectedHex, encErr)) {
+                std::cout << "LOGIN_HIGH encrypt error: " << encErr << "\n";
                 resp.ok = false;
                 resp.code = protocol::ErrorCode::InternalError;
                 resp.msg = "internal error";
@@ -186,9 +156,10 @@ void RegisterAuthHandlers(CommandRouter& router, const ServerConfig& config) {
                 return;
             }
 
-            const std::string normalized = crypto::BytesToHex(cipherBytes);
-            if (normalized != expectedHex) {
-                std::cout << "LOGIN_HIGH auth failed for user: " << user << "\n";
+            std::string err;
+            const int admin = AdminLogin(cipherHex, expectedHex, err);
+            if (admin == 0) {
+                std::cout << "LOGIN_HIGH auth failed for user: " << user << " (" << err << ")\n";
                 resp.ok = false;
                 resp.code = protocol::ErrorCode::BadRequest;
                 resp.msg = "auth failed";
@@ -197,9 +168,10 @@ void RegisterAuthHandlers(CommandRouter& router, const ServerConfig& config) {
             }
 
             session.setLevel(Session::Level::High);
-            session.setUsername(user);
+            session.setUsername(config.adminUser);
 
-            std::cout << "LOGIN_HIGH success for user: " << user << "\n";
+            const std::string displayUser = user.empty() ? config.adminUser : user;
+            std::cout << "LOGIN_HIGH success for user: " << displayUser << "\n";
             resp.ok = true;
             resp.code = protocol::ErrorCode::Ok;
             resp.msg = "login_high_ok";

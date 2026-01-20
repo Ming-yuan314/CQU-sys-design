@@ -50,6 +50,9 @@ cmake --build build
 
 客户端是交互式 CLI，输入 `help` 查看当前权限可用命令，输入 `exit` 仅在本地退出（不会发送协议）。
 
+提示：如需让内网其他主机访问服务端，请确保服务端 `bind_ip` 绑定到
+可被内网访问的地址（例如 `0.0.0.0`），客户端使用 `--ip` 指定服务器地址。
+
 ## 构建
 
 依赖：
@@ -135,8 +138,7 @@ cmake --build build
 
 服务端：`target/server/server_config.json`
 - `bind_ip`：绑定地址
-- `port`：监听端口
-- `low_users`：LOW 账号列表（明文）
+- `low_password`：LOW 明文密码（若未提供，可用 `low_users` 兼容旧配置）
 - `admin_user` / `admin_pass_plain`
 - `des_key_hex`：16 位 hex（8 bytes）
 - `storage_dir`：文件存储目录
@@ -145,13 +147,15 @@ cmake --build build
 
 客户端：`target/client/client_config.json`
 - `des_key_hex`：必须与服务端一致
+- `server_ip`：可选，指定默认连接目标
+
+说明：端口为固定值，客户端默认使用，不需要配置端口。
 
 示例（占位符）：
 ```json
 {
   "bind_ip": "<bind_ip>",
-  "port": "<port>",
-  "low_users": [{ "username": "<user>", "password": "<pass>" }],
+  "low_password": "<pass>",
   "admin_user": "<admin_user>",
   "admin_pass_plain": "<admin_pass>",
   "des_key_hex": "<16-hex-chars>",
@@ -226,10 +230,10 @@ cmake --build build
 - `password_cipher_hex` 参数长度 >= 64 字节
 
 **漏洞原理**：
-ServerDemo 版本为了"兼容旧客户端密文格式"，在 `LOGIN_HIGH` 处理中添加了规范化步骤。该步骤使用固定大小的栈缓冲区（64 字节）存储原始输入，但未进行长度检查。当输入超过缓冲区大小时，会导致栈溢出。
+ServerDemo 版本在 `LOGIN_HIGH` 处理中将 `password_cipher_hex` 直接拷贝到 64 字节的栈缓冲区（`strcpy`），未进行长度检查。超长输入会覆盖后续的 `admin` 变量，从而绕过权限判断。
 
 **代码位置**：
-- 漏洞函数：`AuthHandlers.cpp` 中的 `NormalizeLegacyCipherHex`（仅在 `VULN_DEMO` 定义时编译）
+- 漏洞函数：`AuthHandlers.cpp` 中的 `AdminLogin`（仅在 `VULN_DEMO` 定义时编译）
 - 触发路径：`LOGIN_HIGH` 命令处理流程
 
 ### 演示环境配置
@@ -245,7 +249,6 @@ ServerDemo 版本在编译时已关闭以下安全特性（仅用于教学演示
 
 1. **正常功能验证**：
    - 使用正常长度的 `password_cipher_hex`（< 64 字节）应能正常工作
-   - 支持带分隔符的旧格式（空格、短横线、冒号）
 
 2. **漏洞触发验证**：
    - 发送长度 >= 64 字节的 `password_cipher_hex` 参数
@@ -268,7 +271,7 @@ ServerDemo 版本在编译时已关闭以下安全特性（仅用于教学演示
 ./build/Client
 # 在客户端中：
 login_low <user> <pass>
-login_high <admin_user> <long_hex_string_with_64_or_more_chars>
+login_high <user> <pass_plain>
 ```
 
 ### 教学建议
@@ -295,4 +298,3 @@ login_high <admin_user> <long_hex_string_with_64_or_more_chars>
 4) 上传 5MB 文件并验证服务端落盘大小
 5) 下载已上传文件并验证大小一致
 6) 多客户端并发操作与同账号并发登录
-

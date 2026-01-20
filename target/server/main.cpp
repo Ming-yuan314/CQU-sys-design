@@ -22,6 +22,8 @@
 
 namespace {
 
+constexpr char kBanner[] = "PWNREMOTE/1.0 READY";
+
 std::string AddrToString(const sockaddr_in& addr) {
     char ipBuf[INET_ADDRSTRLEN]{};
     InetNtopA(AF_INET, const_cast<in_addr*>(&addr.sin_addr), ipBuf, sizeof(ipBuf));
@@ -89,7 +91,8 @@ int main() {
 
     sockaddr_in addr{};
     addr.sin_family = AF_INET;
-    addr.sin_port = htons(config.port);
+    const unsigned short kServerPort = 9000;
+    addr.sin_port = htons(kServerPort);
     if (InetPtonA(AF_INET, config.bindIp.c_str(), &addr.sin_addr) != 1) {
         std::cerr << "Invalid bind_ip: " << config.bindIp << "\n";
         closesocket(listenSock);
@@ -97,7 +100,12 @@ int main() {
     }
 
     if (bind(listenSock, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) == SOCKET_ERROR) {
-        std::cerr << "bind() failed\n";
+        const int err = WSAGetLastError();
+        std::cerr << "bind() failed for " << config.bindIp;
+        if (err == WSAEADDRINUSE) {
+            std::cerr << " (port is unavailable)";
+        }
+        std::cerr << " (error=" << err << ")\n";
         closesocket(listenSock);
         return 1;
     }
@@ -132,6 +140,9 @@ int main() {
             std::cerr << "accept() failed\n";
             continue;
         }
+
+        const int bannerLen = static_cast<int>(sizeof(kBanner) - 1);
+        send(clientSock, kBanner, bannerLen, 0);
 
         const uint64_t connId = nextConnId.fetch_add(1);
         const std::string peer = AddrToString(clientAddr);

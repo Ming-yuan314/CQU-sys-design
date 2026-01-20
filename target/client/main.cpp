@@ -3,6 +3,7 @@
 #include <fstream>
 #include <iostream>
 #include <sstream>
+#include <string_view>
 #include <string>
 #include <vector>
 
@@ -22,6 +23,39 @@ namespace {
 struct ClientConfig {
     std::string desKeyHex = "0123456789ABCDEF";
     std::vector<uint8_t> desKeyBytes;
+    std::string serverIp = "127.0.0.1";
+};
+
+struct ClientArgs {
+    bool hasServerIp = false;
+    std::string serverIp;
+    bool showHelp = false;
+};
+
+void PrintUsage() {
+    std::cout << "Usage: Client [--ip <server_ip>]\n";
+}
+
+bool ParseArgs(int argc, char** argv, ClientArgs& out) {
+    for (int i = 1; i < argc; ++i) {
+        const std::string_view arg = argv[i];
+        if (arg == "--help" || arg == "-h") {
+            out.showHelp = true;
+            return true;
+        }
+        if (arg == "--ip") {
+            if (i + 1 >= argc) {
+                std::cerr << "Missing value after " << arg << "\n";
+                return false;
+            }
+            out.hasServerIp = true;
+            out.serverIp = argv[++i];
+            continue;
+        }
+        std::cerr << "Unknown argument: " << arg << "\n";
+        return false;
+    }
+    return true;
 };
 
 bool LoadClientConfigFile(const std::string& path,
@@ -55,6 +89,15 @@ bool LoadClientConfigFile(const std::string& path,
     if (!protocol::GetString(obj, "des_key_hex", desKeyHex)) {
         err = "invalid or missing field: des_key_hex";
         return false;
+    }
+
+    std::string serverIp;
+    if (protocol::GetString(obj, "server_ip", serverIp)) {
+        if (serverIp.empty()) {
+            err = "invalid field: server_ip";
+            return false;
+        }
+        out.serverIp = serverIp;
     }
 
     std::vector<uint8_t> keyBytes;
@@ -479,9 +522,19 @@ bool HandleDownload(SOCKET s, const std::string& argsLine) {
 
 } // namespace
 
-int main() {
+int main(int argc, char** argv) {
     std::cout << "client start\n";
     std::cout << common::build_info() << "\n";
+
+    ClientArgs args;
+    if (!ParseArgs(argc, argv, args)) {
+        PrintUsage();
+        return 1;
+    }
+    if (args.showHelp) {
+        PrintUsage();
+        return 0;
+    }
 
     ClientConfig config;
     std::string configErr;
@@ -516,14 +569,14 @@ int main() {
         std::cout << "Client config not found, using default DES key\n";
     }
 
+    if (args.hasServerIp) {
+        config.serverIp = args.serverIp;
+    }
     net::SocketInit sockInit;
     if (!sockInit.ok()) {
         std::cerr << "SocketInit failed\n";
         return 1;
     }
-
-    const char* kServerIp = "127.0.0.1";
-    const unsigned short kServerPort = 9000;
 
     SOCKET s = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
     if (s == INVALID_SOCKET) {
@@ -533,8 +586,9 @@ int main() {
 
     sockaddr_in addr{};
     addr.sin_family = AF_INET;
+    const unsigned short kServerPort = 9000;
     addr.sin_port = htons(kServerPort);
-    if (InetPtonA(AF_INET, kServerIp, &addr.sin_addr) != 1) {
+    if (InetPtonA(AF_INET, config.serverIp.c_str(), &addr.sin_addr) != 1) {
         std::cerr << "InetPtonA failed\n";
         closesocket(s);
         return 1;

@@ -24,7 +24,7 @@ ServerConfig DefaultConfig() {
     if (crypto::HexToBytes(cfg.desKeyHex, keyBytes) && keyBytes.size() == 8) {
         cfg.desKeyBytes = keyBytes;
     }
-    cfg.lowUsers.push_back(ServerConfig::LowUser{"user", "1234"});
+    cfg.lowPassword = "123456";
     return cfg;
 }
 
@@ -56,12 +56,6 @@ ConfigLoadResult LoadServerConfig(const std::string& path, ServerConfig& out, st
 
     protocol::JsonObject obj = *root.o;
 
-    int64_t port = 0;
-    if (!protocol::GetNumber(obj, "port", port) || port <= 0 || port > 65535) {
-        err = "invalid or missing field: port";
-        return ConfigLoadResult::Invalid;
-    }
-
     std::string bindIp;
     if (protocol::GetString(obj, "bind_ip", bindIp)) {
         if (bindIp.empty()) {
@@ -71,29 +65,39 @@ ConfigLoadResult LoadServerConfig(const std::string& path, ServerConfig& out, st
         out.bindIp = bindIp;
     }
 
-    protocol::JsonArray lowUsersArr;
-    if (!protocol::GetArray(obj, "low_users", lowUsersArr) || lowUsersArr.items.empty()) {
-        err = "invalid or missing field: low_users";
-        return ConfigLoadResult::Invalid;
-    }
-    std::vector<ServerConfig::LowUser> lowUsers;
-    lowUsers.reserve(lowUsersArr.items.size());
-    for (const auto& item : lowUsersArr.items) {
-        if (item.type != protocol::JsonValue::Type::Object || !item.o) {
-            err = "invalid low_users item";
+    std::string lowPassword;
+    if (protocol::GetString(obj, "low_password", lowPassword)) {
+        if (lowPassword.empty()) {
+            err = "invalid field: low_password";
             return ConfigLoadResult::Invalid;
         }
-        std::string username;
-        std::string password;
-        if (!protocol::GetString(*item.o, "username", username) || username.empty()) {
-            err = "invalid low_users.username";
+        out.lowPassword = lowPassword;
+    } else {
+        protocol::JsonArray lowUsersArr;
+        if (!protocol::GetArray(obj, "low_users", lowUsersArr) || lowUsersArr.items.empty()) {
+            err = "invalid or missing field: low_password/low_users";
             return ConfigLoadResult::Invalid;
         }
-        if (!protocol::GetString(*item.o, "password", password)) {
-            err = "invalid low_users.password";
-            return ConfigLoadResult::Invalid;
+        std::vector<ServerConfig::LowUser> lowUsers;
+        lowUsers.reserve(lowUsersArr.items.size());
+        for (const auto& item : lowUsersArr.items) {
+            if (item.type != protocol::JsonValue::Type::Object || !item.o) {
+                err = "invalid low_users item";
+                return ConfigLoadResult::Invalid;
+            }
+            std::string username;
+            std::string password;
+            if (!protocol::GetString(*item.o, "username", username) || username.empty()) {
+                err = "invalid low_users.username";
+                return ConfigLoadResult::Invalid;
+            }
+            if (!protocol::GetString(*item.o, "password", password)) {
+                err = "invalid low_users.password";
+                return ConfigLoadResult::Invalid;
+            }
+            lowUsers.push_back(ServerConfig::LowUser{username, password});
         }
-        lowUsers.push_back(ServerConfig::LowUser{username, password});
+        out.lowUsers = std::move(lowUsers);
     }
 
     std::string adminUser;
@@ -156,12 +160,10 @@ ConfigLoadResult LoadServerConfig(const std::string& path, ServerConfig& out, st
         out.overwrite = overwrite;
     }
 
-    out.port = static_cast<uint16_t>(port);
     out.adminUser = adminUser;
     out.adminPassPlain = adminPass;
     out.desKeyHex = crypto::BytesToHex(keyBytes);
     out.desKeyBytes = keyBytes;
-    out.lowUsers = std::move(lowUsers);
     return ConfigLoadResult::Ok;
 }
 

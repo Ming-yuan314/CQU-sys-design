@@ -1,3 +1,4 @@
 {
-  "des_key_hex": "0123456789ABCDEF"
+  "des_key_hex": "0123456789ABCDEF",
+  "server_ip": "127.0.0.1"
 }

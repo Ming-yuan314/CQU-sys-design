@@ -7,12 +7,12 @@
 
 namespace server {
 
-class Session {
-public:
+    class Session {
+    public:
     enum class Level {
-        Guest = 0,
-        Low,
-        High
+        Guest = -1,
+        Low = 0,
+        High = 1
     };
 
     struct UploadState {

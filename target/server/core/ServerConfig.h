@@ -7,12 +7,12 @@
 namespace server {
 
 struct ServerConfig {
-    uint16_t port = 9000;
     std::string bindIp = "127.0.0.1";
     std::string adminUser = "admin";
     std::string adminPassPlain = "adminpw";
     std::string desKeyHex = "0123456789ABCDEF";
     std::vector<uint8_t> desKeyBytes;
+    std::string lowPassword = "123456";
     std::string storageDir = "server_files";
     uint64_t maxFileSize = 50 * 1024 * 1024;
     uint32_t maxChunkBytes = 64 * 1024;
