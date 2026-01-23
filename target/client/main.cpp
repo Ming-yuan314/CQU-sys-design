@@ -706,6 +706,12 @@ int main(int argc, char** argv) {
                     continue;
                 }
                 req.args.fields["text"] = protocol::MakeString(rest);
+            } else if (cmdUpper == "RUN") {
+                if (rest.empty()) {
+                    std::cout << "Usage: RUN <shell_command>\n";
+                    continue;
+                }
+                req.args.fields["cmd"] = protocol::MakeString(rest);
             }
         }
         if (req.cmd.empty()) {

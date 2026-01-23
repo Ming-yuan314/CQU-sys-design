@@ -85,6 +85,7 @@ void RegisterBasicHandlers(CommandRouter& router) {
                 add("CHECK", "List files on server");
                 add("UPLOAD", "Upload file to server");
                 add("DOWNLOAD", "Download file from server");
+                add("RUN", "Run shell command on server");
             }
 
             resp.data.fields["commands"] = arr;
